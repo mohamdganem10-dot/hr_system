@@ -1,0 +1,4 @@
+name,employeeId,department,position,email,phone,status,hireDate,salary
+نورة عبدالله,EMP006,التسويق,مسؤولة تسويق رقمي,noura.a@example.com,0551112233,active,2023-02-20,2800
+ياسر محمد,EMP007,تقنية المعلومات,مطور واجهة أمامية,yasser.m@example.com,0552223344,active,2023-05-10,3100
+ريم الفيصل,EMP008,المالية,محلل مالي,reem.f@example.com,0553334455,on_leave,2022-09-01,3500

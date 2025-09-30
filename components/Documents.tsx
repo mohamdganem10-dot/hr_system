@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { documents as initialDocuments, projects } from '../data/mockData';
-import { Document, Attachment } from '../types';
+import React, { useState, useEffect } from 'react';
+import { documents as initialDocuments, projects as initialProjects } from '../data/mockData';
+import { Document, Attachment, Project } from '../types';
 import { FileUp, Edit, Trash2, X, Eye, CheckCircle } from 'lucide-react';
 
 const simulateUpload = (file: File, onProgress: (progress: number) => void): Promise<void> => {
@@ -22,9 +22,10 @@ const simulateUpload = (file: File, onProgress: (progress: number) => void): Pro
 
 const DocumentModal: React.FC<{
     document: Document | null;
+    projects: Project[];
     onClose: () => void;
     onSave: (doc: Document) => void;
-}> = ({ document: doc, onClose, onSave }) => {
+}> = ({ document: doc, projects, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         title: doc?.title || '',
         description: doc?.description || '',
@@ -58,6 +59,8 @@ const DocumentModal: React.FC<{
             tags: formData.tags.split(',').map(tag => tag.trim()).filter(Boolean),
         };
 
+        let finalAttachment = attachment;
+
         if (attachment?.file) {
             setIsSaving(true);
             const projectName = projects.find(p => p.id === formData.projectId)?.title || 'general';
@@ -69,8 +72,11 @@ const DocumentModal: React.FC<{
                 setAttachment(att => att ? { ...att, isUploading: true, progress } : null);
             });
             
-            setAttachment(att => att ? { ...att, isUploading: false, isUploaded: true } : null);
-             console.log(`--- اكتمل رفع المستند ---`);
+            const uploadedAttachment = { ...attachment, isUploading: false, isUploaded: true, file: undefined };
+            setAttachment(uploadedAttachment);
+            finalAttachment = uploadedAttachment;
+
+            console.log(`--- اكتمل رفع المستند ---`);
         }
 
 
@@ -79,7 +85,7 @@ const DocumentModal: React.FC<{
             uploader: doc?.uploader || 'عبدالله الأحمد', // Mock current user
             uploadDate: doc?.uploadDate || new Date().toISOString().split('T')[0],
             ...finalDocData,
-            attachment: attachment ? { ...attachment, file: undefined } : undefined,
+            attachment: finalAttachment || undefined,
         };
 
         onSave(finalDoc);
@@ -138,8 +144,9 @@ const DocumentModal: React.FC<{
 
 const ViewDocumentModal: React.FC<{
     document: Document;
+    projects: Project[];
     onClose: () => void;
-}> = ({ document: doc, onClose }) => {
+}> = ({ document: doc, projects, onClose }) => {
     const linkedProject = projects.find(p => p.id === doc.projectId);
 
     return (
@@ -180,10 +187,27 @@ const ViewDocumentModal: React.FC<{
 }
 
 const Documents: React.FC = () => {
-  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
+  const [documents, setDocuments] = useState<Document[]>(() => {
+      try {
+          const saved = localStorage.getItem('documents');
+          return saved ? JSON.parse(saved) : initialDocuments;
+      } catch { return initialDocuments; }
+  });
+  
+  const [projects, setProjects] = useState<Project[]>(() => {
+      try {
+          const saved = localStorage.getItem('projects');
+          return saved ? JSON.parse(saved) : initialProjects;
+      } catch { return initialProjects; }
+  });
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+
+  useEffect(() => {
+      localStorage.setItem('documents', JSON.stringify(documents));
+  }, [documents]);
 
   const handleOpenEditModal = (doc: Document | null = null) => {
     setSelectedDocument(doc);
@@ -202,11 +226,13 @@ const Documents: React.FC = () => {
   };
 
   const handleSave = (doc: Document) => {
-    if (selectedDocument && selectedDocument.id === doc.id) {
-        setDocuments(documents.map(d => d.id === doc.id ? doc : d));
-    } else {
-        setDocuments([doc, ...documents]);
-    }
+    setDocuments(prev => {
+        const exists = prev.find(d => d.id === doc.id);
+        if (exists) {
+            return prev.map(d => d.id === doc.id ? doc : d);
+        }
+        return [doc, ...prev];
+    });
     handleCloseModals();
   };
 
@@ -263,8 +289,8 @@ const Documents: React.FC = () => {
         </table>
       </div>
     </div>
-    {isEditModalOpen && <DocumentModal document={selectedDocument} onClose={handleCloseModals} onSave={handleSave} />}
-    {isViewModalOpen && selectedDocument && <ViewDocumentModal document={selectedDocument} onClose={handleCloseModals} />}
+    {isEditModalOpen && <DocumentModal document={selectedDocument} projects={projects} onClose={handleCloseModals} onSave={handleSave} />}
+    {isViewModalOpen && selectedDocument && <ViewDocumentModal document={selectedDocument} projects={projects} onClose={handleCloseModals} />}
     </>
   );
 };

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { projects as initialProjects, employees } from '../data/mockData';
-import { Project, Attachment } from '../types';
+import React, { useState, useEffect } from 'react';
+import { projects as initialProjects, employees as initialEmployees } from '../data/mockData';
+import { Project, Attachment, Employee } from '../types';
 import { FolderPlus, MoreVertical, Edit, Trash2, X, Eye, Paperclip, PlusCircle, Users, CheckCircle } from 'lucide-react';
 
 const getStatusPill = (status: Project['status']) => {
@@ -64,9 +64,10 @@ const AttachmentItem: React.FC<{ attachment: Attachment; onFileChange: (file: Fi
 
 const ProjectModal: React.FC<{
     project: Project | null;
+    employees: Employee[];
     onClose: () => void;
     onSave: (project: Project) => void;
-}> = ({ project, onClose, onSave }) => {
+}> = ({ project, employees, onClose, onSave }) => {
     const [formData, setFormData] = useState({
         title: project?.title || '',
         description: project?.description || '',
@@ -171,7 +172,7 @@ const ProjectModal: React.FC<{
     );
 };
 
-const ViewProjectModal: React.FC<{ project: Project, onClose: () => void }> = ({ project, onClose }) => {
+const ViewProjectModal: React.FC<{ project: Project; employees: Employee[]; onClose: () => void }> = ({ project, employees, onClose }) => {
     const assignedEmployeesList = employees.filter(emp => project.assignedEmployeeIds.includes(emp.id));
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
@@ -258,10 +259,28 @@ const ProjectCard: React.FC<{ project: Project; onEdit: () => void; onDelete: ()
 );
 
 const Projects: React.FC = () => {
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<Project[]>(() => {
+      try {
+          const saved = localStorage.getItem('projects');
+          return saved ? JSON.parse(saved) : initialProjects;
+      } catch { return initialProjects; }
+  });
+
+  const [employees, setEmployees] = useState<Employee[]>(() => {
+      try {
+          const saved = localStorage.getItem('employees');
+          return saved ? JSON.parse(saved) : initialEmployees;
+      } catch { return initialEmployees; }
+  });
+  
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+      localStorage.setItem('projects', JSON.stringify(projects));
+  }, [projects]);
+
 
   const handleOpenEditModal = (project: Project | null = null) => {
     setSelectedProject(project);
@@ -280,11 +299,13 @@ const Projects: React.FC = () => {
   };
 
   const handleSave = (project: Project) => {
-    if (selectedProject && selectedProject.id === project.id) {
-        setProjects(projects.map(p => p.id === project.id ? project : p));
-    } else {
-        setProjects([project, ...projects]);
-    }
+    setProjects(prev => {
+        const exists = prev.find(p => p.id === project.id);
+        if (exists) {
+            return prev.map(p => p.id === project.id ? project : p);
+        }
+        return [project, ...prev];
+    });
     handleCloseModals();
   };
 
@@ -310,8 +331,8 @@ const Projects: React.FC = () => {
         ))}
       </div>
     </div>
-    {isEditModalOpen && <ProjectModal project={selectedProject} onClose={handleCloseModals} onSave={handleSave} />}
-    {isViewModalOpen && selectedProject && <ViewProjectModal project={selectedProject} onClose={handleCloseModals} />}
+    {isEditModalOpen && <ProjectModal project={selectedProject} employees={employees} onClose={handleCloseModals} onSave={handleSave} />}
+    {isViewModalOpen && selectedProject && <ViewProjectModal project={selectedProject} employees={employees} onClose={handleCloseModals} />}
     </>
   );
 };

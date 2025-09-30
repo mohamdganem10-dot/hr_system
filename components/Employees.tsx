@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { employees as initialEmployees } from '../data/mockData';
 import { Employee, Attachment } from '../types';
-import { UserPlus, Edit, Trash2, X, Eye, Paperclip, PlusCircle, CheckCircle } from 'lucide-react';
+import { UserPlus, Edit, Trash2, X, Eye, Paperclip, PlusCircle, CheckCircle, FileUp, AlertTriangle } from 'lucide-react';
+import Papa from 'papaparse';
+
 
 // --- Helper Functions & Components ---
 const getStatusBadge = (status: Employee['status']) => {
@@ -126,7 +128,7 @@ const EmployeeModal: React.FC<{
         const finalEmployee: Employee = {
             id: employee?.id || Date.now().toString(), status: employee?.status || 'active',
             ...formData, salary: Number(formData.salary),
-            photo: photo ? { ...photo, file: undefined } : undefined, // Don't store file object
+            photo: photo ? { ...photo, file: undefined, url: photo.url } : undefined, // Don't store file object
             attachments: attachments.filter(a => a.name).map(a => ({...a, file: undefined})),
         };
         
@@ -245,12 +247,122 @@ const ViewEmployeeModal: React.FC<{
     );
 };
 
+const ImportCSVModal: React.FC<{
+    onClose: () => void;
+    onImport: (newEmployees: Employee[]) => void;
+}> = ({ onClose, onImport }) => {
+    const [csvData, setCsvData] = useState<any[]>([]);
+    const [csvErrors, setCsvErrors] = useState<string[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileParse = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setCsvData([]);
+        setCsvErrors([]);
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                const requiredHeaders = ['name', 'employeeId', 'department', 'position', 'email', 'phone', 'status', 'hireDate', 'salary'];
+                const headers = results.meta.fields || [];
+                const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+
+                if (missingHeaders.length > 0) {
+                    setCsvErrors([`ملف CSV يفتقد الأعمدة المطلوبة: ${missingHeaders.join(', ')}`]);
+                    return;
+                }
+                
+                setCsvData(results.data);
+            },
+            error: (error) => {
+                setCsvErrors([`حدث خطأ أثناء تحليل الملف: ${error.message}`]);
+            }
+        });
+    };
+
+    const handleConfirmImport = () => {
+        const newEmployees: Employee[] = csvData.map((row, index) => ({
+            id: `csv_${Date.now()}_${index}`,
+            name: row.name,
+            employeeId: row.employeeId,
+            department: row.department,
+            position: row.position,
+            email: row.email,
+            phone: row.phone,
+            status: row.status as Employee['status'] || 'active',
+            hireDate: row.hireDate,
+            salary: Number(row.salary) || 0,
+            attachments: [],
+        }));
+        onImport(newEmployees);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold">استيراد الموظفين من ملف CSV</h2>
+                    <button onClick={onClose}><X size={24} /></button>
+                </div>
+                <div className="mb-4">
+                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileParse} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                    <p className="text-xs text-gray-500 mt-1">يجب أن يحتوي الملف على الأعمدة: name, employeeId, department, position, email, phone, status, hireDate, salary</p>
+                </div>
+                {csvErrors.length > 0 && (
+                    <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                        <p className="font-bold">أخطاء</p>
+                        {csvErrors.map((error, i) => <p key={i}>{error}</p>)}
+                    </div>
+                )}
+                {csvData.length > 0 && (
+                    <div className="flex-1 overflow-y-auto border rounded-lg">
+                        <table className="w-full text-right text-sm">
+                            <thead className="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                                <tr>{Object.keys(csvData[0]).map(key => <th key={key} className="p-2 font-semibold">{key}</th>)}</tr>
+                            </thead>
+                            <tbody>
+                                {csvData.map((row, i) => (
+                                    <tr key={i} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                        {Object.values(row).map((val: any, j) => <td key={j} className="p-2 truncate max-w-xs">{val}</td>)}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <div className="flex justify-end gap-4 pt-4 mt-auto">
+                    <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 px-4 py-2 rounded-lg">إلغاء</button>
+                    <button onClick={handleConfirmImport} disabled={csvData.length === 0 || csvErrors.length > 0} className="bg-green-600 text-white px-4 py-2 rounded-lg disabled:opacity-50">تأكيد الاستيراد</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // --- Main Component ---
 const Employees: React.FC = () => {
-    const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
+    const [employees, setEmployees] = useState<Employee[]>(() => {
+        try {
+            const saved = localStorage.getItem('employees');
+            return saved ? JSON.parse(saved) : initialEmployees;
+        } catch {
+            return initialEmployees;
+        }
+    });
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+
+    useEffect(() => {
+        localStorage.setItem('employees', JSON.stringify(employees));
+    }, [employees]);
+
 
     const handleOpenEditModal = (employee: Employee | null = null) => {
         setSelectedEmployee(employee);
@@ -265,15 +377,18 @@ const Employees: React.FC = () => {
     const handleCloseModals = () => {
         setIsEditModalOpen(false);
         setIsViewModalOpen(false);
+        setIsImportModalOpen(false);
         setSelectedEmployee(null);
     };
 
     const handleSave = (employee: Employee) => {
-        if (selectedEmployee && selectedEmployee.id === employee.id) {
-            setEmployees(employees.map(e => e.id === employee.id ? employee : e));
-        } else {
-            setEmployees([...employees, employee]);
-        }
+        setEmployees(prev => {
+            const exists = prev.find(e => e.id === employee.id);
+            if (exists) {
+                return prev.map(e => e.id === employee.id ? employee : e);
+            }
+            return [...prev, employee];
+        });
         handleCloseModals();
     };
 
@@ -282,16 +397,26 @@ const Employees: React.FC = () => {
             setEmployees(employees.filter(e => e.id !== id));
         }
     };
+    
+    const handleImport = (newEmployees: Employee[]) => {
+        setEmployees(prev => [...prev, ...newEmployees]);
+    };
 
   return (
     <>
     <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
             <h1 className="text-2xl font-bold text-gray-800 dark:text-white">إدارة الموظفين</h1>
-            <button onClick={() => handleOpenEditModal()} className="w-full md:w-auto flex items-center justify-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                <UserPlus size={20} className="ml-2"/>
-                <span>إضافة موظف</span>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                <button onClick={() => setIsImportModalOpen(true)} className="w-full sm:w-auto flex items-center justify-center bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
+                    <FileUp size={20} className="ml-2"/>
+                    <span>استيراد من CSV</span>
+                </button>
+                <button onClick={() => handleOpenEditModal()} className="w-full sm:w-auto flex items-center justify-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    <UserPlus size={20} className="ml-2"/>
+                    <span>إضافة موظف</span>
+                </button>
+            </div>
         </div>
 
       <div className="overflow-x-auto">
@@ -338,6 +463,7 @@ const Employees: React.FC = () => {
     </div>
     {isEditModalOpen && <EmployeeModal employee={selectedEmployee} onClose={handleCloseModals} onSave={handleSave} />}
     {isViewModalOpen && selectedEmployee && <ViewEmployeeModal employee={selectedEmployee} onClose={handleCloseModals} />}
+    {isImportModalOpen && <ImportCSVModal onClose={handleCloseModals} onImport={handleImport} />}
     </>
   );
 };
